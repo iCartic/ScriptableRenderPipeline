@@ -35,15 +35,6 @@ namespace UnityEngine.Rendering.Universal
             public static int _TimeParameters;
         }
 
-        static internal class PerCameraBuffer
-        {
-            // TODO: This needs to account for stereo rendering
-            public static int unity_MatrixInvVP;
-            public static int _ScaledScreenParams;
-            public static int _ScreenParams;
-            public static int _WorldSpaceCameraPos;
-        }
-
         public const string k_ShaderTagName = "UniversalPipeline";
 
         const string k_RenderCameraTag = "Render Camera";
@@ -111,11 +102,6 @@ namespace UnityEngine.Rendering.Universal
             PerFrameBuffer._CosTime = Shader.PropertyToID("_CosTime");
             PerFrameBuffer.unity_DeltaTime = Shader.PropertyToID("unity_DeltaTime");
             PerFrameBuffer._TimeParameters = Shader.PropertyToID("_TimeParameters");
-
-            PerCameraBuffer.unity_MatrixInvVP = Shader.PropertyToID("unity_MatrixInvVP");
-            PerCameraBuffer._ScreenParams = Shader.PropertyToID("_ScreenParams");
-            PerCameraBuffer._ScaledScreenParams = Shader.PropertyToID("_ScaledScreenParams");
-            PerCameraBuffer._WorldSpaceCameraPos = Shader.PropertyToID("_WorldSpaceCameraPos");
 
             // Let engine know we have MSAA on for cases where we support MSAA backbuffer
             if (QualitySettings.antiAliasing != asset.msaaSampleCount)

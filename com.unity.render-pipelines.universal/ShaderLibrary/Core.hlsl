@@ -56,7 +56,7 @@ VertexPositionInputs GetVertexPositionInputs(float3 positionOS)
     input.positionCS = TransformWorldToHClip(input.positionWS);
     
     float4 ndc = input.positionCS * 0.5f;
-    input.positionNDC.xy = float2(ndc.x, ndc.y * _ProjectionParams.x) + ndc.w;
+    input.positionNDC.xy = float2(ndc.x, ndc.y * unity_ProjectionParams.x) + ndc.w;
     input.positionNDC.zw = input.positionCS.zw;
         
     return input;
@@ -155,7 +155,7 @@ real3 NormalizeNormalPerPixel(real3 normalWS)
 float4 ComputeScreenPos(float4 positionCS)
 {
     float4 o = positionCS * 0.5f;
-    o.xy = float2(o.x, o.y * _ProjectionParams.x) + o.w;
+    o.xy = float2(o.x, o.y * unity_ProjectionParams.x) + o.w;
     o.zw = positionCS.zw;
     return o;
 }

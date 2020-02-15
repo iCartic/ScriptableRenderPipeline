@@ -40,6 +40,10 @@ float4 _CosTime; // cos(t/8), cos(t/4), cos(t/2), cos(t)
 float4 unity_DeltaTime; // dt, 1/dt, smoothdt, 1/smoothdt
 float4 _TimeParameters; // t, sin(t), cos(t)
 
+
+// ----------------------------------------------------------------------------
+// Camera and Screen Variables
+// ----------------------------------------------------------------------------
 #if !defined(USING_STEREO_MATRICES)
 float3 _WorldSpaceCameraPos;
 #endif
@@ -48,7 +52,12 @@ float3 _WorldSpaceCameraPos;
 // y = near plane
 // z = far plane
 // w = 1/far plane
-float4 _ProjectionParams;
+float4 unity_ProjectionParams;
+
+// backward compatibility with built-in Unity
+// URP configures projection flip information in unity_ProjectionParams.x
+// however Unity override that in several situations, thus why we need a new name
+#define _ProjectionParams unity_ProjectionParams
 
 // x = width
 // y = height

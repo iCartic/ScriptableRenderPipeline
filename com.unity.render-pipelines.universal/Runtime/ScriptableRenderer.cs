@@ -6,6 +6,18 @@ using UnityEngine.Scripting.APIUpdating;
 
 namespace UnityEngine.Rendering.Universal
 {
+    static class PerCameraBuffer
+    {
+        // TODO: This needs to account for stereo rendering
+        public static int unity_MatrixInvVP = Shader.PropertyToID("unity_MatrixInvVP");
+        public static int _ScaledScreenParams = Shader.PropertyToID("_ScaledScreenParams");
+        public static int _WorldSpaceCameraPos = Shader.PropertyToID("_WorldSpaceCameraPos");
+        public static int _ScreenParams = Shader.PropertyToID("_ScreenParams");
+        public static int _ProjectionParams = Shader.PropertyToID("unity_ProjectionParams");
+        public static int _ZBufferParams = Shader.PropertyToID("_ZBufferParams");
+        public static int unity_OrthoParams = Shader.PropertyToID("unity_OrthoParams");
+    }
+    
     /// <summary>
     ///  Class <c>ScriptableRenderer</c> implements a rendering strategy. It describes how culling and lighting works and
     /// the effects supported.
@@ -36,7 +48,7 @@ namespace UnityEngine.Rendering.Universal
             public bool cameraStacking { get; set; } = false;
         }
 
-        void SetShaderTimeValues(float time, float deltaTime, float smoothDeltaTime, CommandBuffer cmd = null)
+        void SetShaderTimeValues(CommandBuffer cmd, float time, float deltaTime, float smoothDeltaTime)
         {
             // We make these parameters to mirror those described in `https://docs.unity3d.com/Manual/SL-UnityShaderVariables.html
             float timeEights = time / 8f;
@@ -49,23 +61,12 @@ namespace UnityEngine.Rendering.Universal
             Vector4 cosTimeVector = new Vector4(Mathf.Cos(timeEights), Mathf.Cos(timeFourth), Mathf.Cos(timeHalf), Mathf.Cos(time));
             Vector4 deltaTimeVector = new Vector4(deltaTime, 1f / deltaTime, smoothDeltaTime, 1f / smoothDeltaTime);
             Vector4 timeParametersVector = new Vector4(time, Mathf.Sin(time), Mathf.Cos(time), 0.0f);
-
-            if (cmd == null)
-            {
-                Shader.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._Time, timeVector);
-                Shader.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._SinTime, sinTimeVector);
-                Shader.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._CosTime, cosTimeVector);
-                Shader.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer.unity_DeltaTime, deltaTimeVector);
-                Shader.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._TimeParameters, timeParametersVector);
-            }
-            else
-            {
-                cmd.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._Time, timeVector);
-                cmd.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._SinTime, sinTimeVector);
-                cmd.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._CosTime, cosTimeVector);
-                cmd.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer.unity_DeltaTime, deltaTimeVector);
-                cmd.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._TimeParameters, timeParametersVector);
-            }
+    
+            cmd.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._Time, timeVector);
+            cmd.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._SinTime, sinTimeVector);
+            cmd.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._CosTime, cosTimeVector);
+            cmd.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer.unity_DeltaTime, deltaTimeVector);
+            cmd.SetGlobalVector(UniversalRenderPipeline.PerFrameBuffer._TimeParameters, timeParametersVector);        
         }
 
         public RenderTargetIdentifier cameraColorTarget
@@ -236,18 +237,13 @@ namespace UnityEngine.Rendering.Universal
         {
             ref CameraData cameraData = ref renderingData.cameraData;
             Camera camera = cameraData.camera;
+            
+            bool stereoEnabled = renderingData.cameraData.isStereoEnabled;
+
             CommandBuffer cmd = CommandBufferPool.Get(k_SetCameraRenderStateTag);
 
-            // Initialize Camera Render State
-            SetCameraRenderState(cmd, ref cameraData);
-            context.ExecuteCommandBuffer(cmd);
-            cmd.Clear();
-            
-            // Sort the render pass queue
-            SortStable(m_ActiveRenderPassQueue);
-
             // Cache the time for after the call to `SetupCameraProperties` and set the time variables in shader
-            // For now we set the time variables per camera, as we plan to remove `SetupCamearProperties`.
+            // For now we set the time variables per camera, as we plan to remove `SetupCameraProperties`.
             // Setting the time per frame would take API changes to pass the variable to each camera render.
             // Once `SetupCameraProperties` is gone, the variable should be set higher in the call-stack.
 #if UNITY_EDITOR
@@ -257,8 +253,16 @@ namespace UnityEngine.Rendering.Universal
 #endif
             float deltaTime = Time.deltaTime;
             float smoothDeltaTime = Time.smoothDeltaTime;
-            SetShaderTimeValues(time, deltaTime, smoothDeltaTime);
-
+            
+            // Initialize Camera Render State
+            ClearRenderingState(cmd);
+            SetPerCameraShaderVariables(cmd, ref cameraData, time, deltaTime, smoothDeltaTime);
+            context.ExecuteCommandBuffer(cmd);
+            cmd.Clear();
+            
+            // Sort the render pass queue
+            SortStable(m_ActiveRenderPassQueue);
+            
             // Upper limits for each block. Each block will contains render passes with events below the limit.
             NativeArray<RenderPassEvent> blockEventLimits = new NativeArray<RenderPassEvent>(k_RenderPassBlockCount, Allocator.Temp);
             blockEventLimits[RenderPassBlock.BeforeRendering] = RenderPassEvent.BeforeRenderingPrepasses;
@@ -283,15 +287,10 @@ namespace UnityEngine.Rendering.Universal
            for (int eyeIndex = 0; eyeIndex < renderingData.cameraData.numberOfXRPasses; ++eyeIndex)
            {
             /// Configure shader variables and other unity properties that are required for rendering.
-            /// * Setup Camera RenderTarget and Viewport
-            /// * VR Camera Setup and SINGLE_PASS_STEREO props
-            /// * Setup camera view, projection and their inverse matrices.
-            /// * Setup properties: _WorldSpaceCameraPos, _ProjectionParams, _ScreenParams, _ZBufferParams, unity_OrthoParams
-            /// * Setup camera world clip planes properties
-            /// * Setup HDR keyword
-            /// * Setup global time properties (_Time, _SinTime, _CosTime)
-            bool stereoEnabled = renderingData.cameraData.isStereoEnabled;
             context.SetupCameraProperties(camera, stereoEnabled, eyeIndex);
+            
+            // SetupCameraProperties call above overrides some camera variables. We need to recall SetPerCameraShaderVariables 
+            SetPerCameraShaderVariables(cmd, ref cameraData, time, deltaTime, smoothDeltaTime);
 
             // If overlay camera, we have to reset projection related matrices due to inheriting viewport from base
             // camera. This changes the aspect ratio, which requires to recompute projection.
@@ -303,23 +302,16 @@ namespace UnityEngine.Rendering.Universal
                 cmd.SetViewProjectionMatrices(cameraData.viewMatrix, cameraData.projectionMatrix);
             }
 
-            // Override time values from when `SetupCameraProperties` were called.
-            // They might be a frame behind.
-            // We can remove this after removing `SetupCameraProperties` as the values should be per frame, and not per camera.
-            SetShaderTimeValues(time, deltaTime, smoothDeltaTime, cmd);
+#if VISUAL_EFFECT_GRAPH_0_0_1_OR_NEWER
+            //Triggers dispatch per camera, all global parameters should have been setup at this stage.
+            VFX.VFXManager.ProcessCameraCommand(camera, cmd);
+#endif
+               
             context.ExecuteCommandBuffer(cmd);
             cmd.Clear();
 
             if (stereoEnabled)
                 BeginXRRendering(context, camera, eyeIndex);
-
-#if VISUAL_EFFECT_GRAPH_0_0_1_OR_NEWER
-            var localCmd = CommandBufferPool.Get(string.Empty);
-            //Triggers dispatch per camera, all global parameters should have been setup at this stage.
-            VFX.VFXManager.ProcessCameraCommand(camera, localCmd);
-            context.ExecuteCommandBuffer(localCmd);
-            CommandBufferPool.Release(localCmd);
-#endif
 
             // In the opaque and transparent blocks the main rendering executes.
 
@@ -406,9 +398,7 @@ namespace UnityEngine.Rendering.Universal
             return ClearFlag.All;
         }
 
-        // Initialize Camera Render State
-        // Place all per-camera rendering logic that is generic for all types of renderers here.
-        void SetCameraRenderState(CommandBuffer cmd, ref CameraData cameraData)
+        void ClearRenderingState(CommandBuffer cmd)
         {
             // Reset per-camera shader keywords. They are enabled depending on which render passes are executed.
             cmd.DisableShaderKeyword(ShaderKeywordStrings.MainLightShadows);
@@ -419,6 +409,73 @@ namespace UnityEngine.Rendering.Universal
             cmd.DisableShaderKeyword(ShaderKeywordStrings.SoftShadows);
             cmd.DisableShaderKeyword(ShaderKeywordStrings.MixedLightingSubtractive);
             cmd.DisableShaderKeyword(ShaderKeywordStrings.LinearToSRGBConversion);
+        }
+
+        // Initialize Camera Render State
+        // Place all per-camera rendering logic that is generic for all types of renderers here.
+        void SetPerCameraShaderVariables(CommandBuffer cmd, ref CameraData cameraData, float time, float deltaTime, float smoothDeltaTime)
+        {
+            Camera camera = cameraData.camera;
+            
+            SetShaderTimeValues(cmd, time, deltaTime, smoothDeltaTime);
+            
+            Rect pixelRect = cameraData.pixelRect;
+            float scaledCameraWidth = (float)pixelRect.width * cameraData.renderScale;
+            float scaledCameraHeight = (float)pixelRect.height * cameraData.renderScale;
+            float cameraWidth = (float)pixelRect.width;
+            float cameraHeight = (float)pixelRect.height;
+
+            Matrix4x4 projMatrix = cameraData.projectionMatrix;
+            Matrix4x4 viewMatrix = cameraData.viewMatrix;
+            Matrix4x4 viewProjMatrix = projMatrix * viewMatrix;
+            Matrix4x4 invViewProjMatrix = Matrix4x4.Inverse(viewProjMatrix);
+            
+            // -1.0 if flipped projection, 1.0 otherwise
+            // projection is flipped when rendering to a render texture in non OpenGL platforms
+            // this is because Unity uses bottom left coordinate system for uv (OpenGL convention)
+            // final blit pass will un-flip it when rendering to screen
+            bool isRT = (cameraColorTarget != BuiltinRenderTextureType.CameraTarget || cameraData.targetTexture != null);
+            float projectionFlip = (isRT && SystemInfo.graphicsUVStartsAtTop) ? -1.0f : 1.0f;
+            
+            float near = camera.nearClipPlane;
+            float far = camera.farClipPlane;
+            float invNear = Mathf.Approximately(near, 0.0f) ? 0.0f : 1.0f / near;
+            float invFar = Mathf.Approximately(far, 0.0f) ? 0.0f : 1.0f / far;
+            float isOrthographic = camera.orthographic ? 1.0f : 0.0f;
+            
+            // From http://www.humus.name/temp/Linearize%20depth.txt
+            // But as depth component textures on OpenGL always return in 0..1 range (as in D3D), we have to use
+            // the same constants for both D3D and OpenGL here.
+            // OpenGL would be this:
+            // zc0 = (1.0 - far / near) / 2.0;
+            // zc1 = (1.0 + far / near) / 2.0;
+            // D3D is this:
+            float zc0 = 1.0f - far * invNear;
+            float zc1 = far * invNear;
+
+            Vector4 zBufferParams = new Vector4(zc0, zc1,  zc0 * invFar, zc1 * invFar);
+
+            if (SystemInfo.usesReversedZBuffer)
+            {
+                zBufferParams.y += zBufferParams.x;
+                zBufferParams.x = -zBufferParams.x;
+                zBufferParams.w += zBufferParams.z;
+                zBufferParams.z = -zBufferParams.z;
+            }
+            
+            Vector4 projectionParams = new Vector4(projectionFlip, near, far, 1.0f * invFar);
+            Vector4 orthoParams = new Vector4(camera.orthographicSize * cameraData.aspectRatio, camera.orthographicSize, 0.0f, isOrthographic);
+                   
+            // Camera and Screen variables as described in https://docs.unity3d.com/Manual/SL-UnityShaderVariables.html
+            cmd.SetGlobalVector(PerCameraBuffer._WorldSpaceCameraPos, camera.transform.position);
+            cmd.SetGlobalVector(PerCameraBuffer._ProjectionParams, projectionParams);
+            cmd.SetGlobalVector(PerCameraBuffer._ScreenParams, new Vector4(cameraWidth, cameraHeight, 1.0f + 1.0f / cameraWidth, 1.0f + 1.0f / cameraHeight));
+            cmd.SetGlobalVector(PerCameraBuffer._ScaledScreenParams, new Vector4(scaledCameraWidth, scaledCameraHeight, 1.0f + 1.0f / scaledCameraWidth, 1.0f + 1.0f / scaledCameraHeight));
+            //cmd.SetGlobalVector(PerCameraBuffer._ZBufferParams, zBufferParams);
+            cmd.SetGlobalVector(PerCameraBuffer.unity_OrthoParams, orthoParams);
+            // TODO: missing unity_CameraWorldClipPlanes[6], currently set by context.SetupCameraProperties
+            
+            cmd.SetGlobalMatrix(PerCameraBuffer.unity_MatrixInvVP, invViewProjMatrix);
         }
 
         internal void Clear(CameraRenderType cameraType)

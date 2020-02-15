@@ -16,7 +16,6 @@ namespace UnityEngine.Rendering.Universal
         DepthOnlyPass m_DepthPrepass;
         MainLightShadowCasterPass m_MainLightShadowCasterPass;
         AdditionalLightsShadowCasterPass m_AdditionalLightsShadowCasterPass;
-        ScreenSpaceShadowResolvePass m_ScreenSpaceShadowResolvePass;
         DrawObjectsPass m_RenderOpaqueForwardPass;
         DrawSkyboxPass m_DrawSkyboxPass;
         CopyDepthPass m_CopyDepthPass;
@@ -70,7 +69,6 @@ namespace UnityEngine.Rendering.Universal
             m_MainLightShadowCasterPass = new MainLightShadowCasterPass(RenderPassEvent.BeforeRenderingShadows);
             m_AdditionalLightsShadowCasterPass = new AdditionalLightsShadowCasterPass(RenderPassEvent.BeforeRenderingShadows);
             m_DepthPrepass = new DepthOnlyPass(RenderPassEvent.BeforeRenderingPrepasses, RenderQueueRange.opaque, data.opaqueLayerMask);
-            m_ScreenSpaceShadowResolvePass = new ScreenSpaceShadowResolvePass(RenderPassEvent.BeforeRenderingPrepasses, m_ScreenspaceShadowsMaterial);
             m_ColorGradingLutPass = new ColorGradingLutPass(RenderPassEvent.BeforeRenderingPrepasses, data.postProcessData);
             m_RenderOpaqueForwardPass = new DrawObjectsPass("Render Opaques", true, RenderPassEvent.BeforeRenderingOpaques, RenderQueueRange.opaque, data.opaqueLayerMask, m_DefaultStencilState, stencilData.stencilReference);
             m_CopyDepthPass = new CopyDepthPass(RenderPassEvent.AfterRenderingSkybox, m_CopyDepthMaterial);
@@ -191,7 +189,7 @@ namespace UnityEngine.Rendering.Universal
                 int backbufferMsaaSamples = (intermediateRenderTexture) ? 1 : cameraTargetDescriptor.msaaSamples;
 
                 if (Camera.main == camera && camera.cameraType == CameraType.Game && cameraData.targetTexture == null)
-                SetupBackbufferFormat(backbufferMsaaSamples, isStereoEnabled);
+                    SetupBackbufferFormat(backbufferMsaaSamples, isStereoEnabled);
             }
             else
             {
