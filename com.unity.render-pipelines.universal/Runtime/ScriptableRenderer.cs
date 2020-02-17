@@ -288,9 +288,9 @@ namespace UnityEngine.Rendering.Universal
            {
             /// Configure shader variables and other unity properties that are required for rendering.
             context.SetupCameraProperties(camera, stereoEnabled, eyeIndex);
-            
-            // SetupCameraProperties call above overrides some camera variables. We need to recall SetPerCameraShaderVariables 
-            SetPerCameraShaderVariables(cmd, ref cameraData, time, deltaTime, smoothDeltaTime);
+
+            // Restore time variables overwritten by SetupCameraProperties above
+            SetShaderTimeValues(cmd, time, deltaTime, smoothDeltaTime);
 
             // If overlay camera, we have to reset projection related matrices due to inheriting viewport from base
             // camera. This changes the aspect ratio, which requires to recompute projection.
@@ -416,9 +416,9 @@ namespace UnityEngine.Rendering.Universal
         void SetPerCameraShaderVariables(CommandBuffer cmd, ref CameraData cameraData, float time, float deltaTime, float smoothDeltaTime)
         {
             Camera camera = cameraData.camera;
-            
+
             SetShaderTimeValues(cmd, time, deltaTime, smoothDeltaTime);
-            
+
             Rect pixelRect = cameraData.pixelRect;
             float scaledCameraWidth = (float)pixelRect.width * cameraData.renderScale;
             float scaledCameraHeight = (float)pixelRect.height * cameraData.renderScale;
@@ -429,14 +429,8 @@ namespace UnityEngine.Rendering.Universal
             Matrix4x4 viewMatrix = cameraData.viewMatrix;
             Matrix4x4 viewProjMatrix = projMatrix * viewMatrix;
             Matrix4x4 invViewProjMatrix = Matrix4x4.Inverse(viewProjMatrix);
-            
-            // -1.0 if flipped projection, 1.0 otherwise
-            // projection is flipped when rendering to a render texture in non OpenGL platforms
-            // this is because Unity uses bottom left coordinate system for uv (OpenGL convention)
-            // final blit pass will un-flip it when rendering to screen
-            bool isRT = (cameraColorTarget != BuiltinRenderTextureType.CameraTarget || cameraData.targetTexture != null);
-            float projectionFlip = (isRT && SystemInfo.graphicsUVStartsAtTop) ? -1.0f : 1.0f;
-            
+
+            float projectionFlip = (SystemInfo.graphicsUVStartsAtTop) ? -1.0f : 1.0f;
             float near = camera.nearClipPlane;
             float far = camera.farClipPlane;
             float invNear = Mathf.Approximately(near, 0.0f) ? 0.0f : 1.0f / near;
@@ -462,19 +456,21 @@ namespace UnityEngine.Rendering.Universal
                 zBufferParams.w += zBufferParams.z;
                 zBufferParams.z = -zBufferParams.z;
             }
-            
+
             Vector4 projectionParams = new Vector4(projectionFlip, near, far, 1.0f * invFar);
             Vector4 orthoParams = new Vector4(camera.orthographicSize * cameraData.aspectRatio, camera.orthographicSize, 0.0f, isOrthographic);
-                   
+
             // Camera and Screen variables as described in https://docs.unity3d.com/Manual/SL-UnityShaderVariables.html
             cmd.SetGlobalVector(PerCameraBuffer._WorldSpaceCameraPos, camera.transform.position);
             cmd.SetGlobalVector(PerCameraBuffer._ProjectionParams, projectionParams);
             cmd.SetGlobalVector(PerCameraBuffer._ScreenParams, new Vector4(cameraWidth, cameraHeight, 1.0f + 1.0f / cameraWidth, 1.0f + 1.0f / cameraHeight));
             cmd.SetGlobalVector(PerCameraBuffer._ScaledScreenParams, new Vector4(scaledCameraWidth, scaledCameraHeight, 1.0f + 1.0f / scaledCameraWidth, 1.0f + 1.0f / scaledCameraHeight));
-            //cmd.SetGlobalVector(PerCameraBuffer._ZBufferParams, zBufferParams);
+            cmd.SetGlobalVector(PerCameraBuffer._ZBufferParams, zBufferParams);
             cmd.SetGlobalVector(PerCameraBuffer.unity_OrthoParams, orthoParams);
-            // TODO: missing unity_CameraWorldClipPlanes[6], currently set by context.SetupCameraProperties
-            
+            // TODO: missing unity_CameraWorldClipPlanes[6], currently set by context.SetupCameraProperties. This will only cause issues
+            // for now if shadow pass requires those matrices
+
+            // TODO: This should be removed when we do XR Pure camera matrices
             cmd.SetGlobalMatrix(PerCameraBuffer.unity_MatrixInvVP, invViewProjMatrix);
         }
 

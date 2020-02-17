@@ -42,6 +42,8 @@ namespace UnityEngine.Rendering.Universal.Internal
             descriptor.depthBufferBits = 32; //TODO: do we really need this. double check;
             descriptor.msaaSamples = 1;
             cmd.GetTemporaryRT(destination.id, descriptor, FilterMode.Point);
+
+            ConfigureTarget(destination.Identifier());
         }
 
         /// <inheritdoc/>

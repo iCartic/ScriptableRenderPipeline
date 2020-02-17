@@ -66,8 +66,6 @@ Varyings vert(Attributes input)
 float SampleDepth(float2 uv)
 {
 #ifdef _DEPTH_NO_MSAA
-    if (_ProjectionParams.x > 0.0)
-        uv.y = 1.0 - uv.y;
     return SAMPLE(uv);
 #else
     int2 coord = int2(uv * _CameraDepthAttachment_TexelSize.zw);
